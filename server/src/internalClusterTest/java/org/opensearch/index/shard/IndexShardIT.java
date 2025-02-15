@@ -84,6 +84,7 @@ import org.opensearch.index.translog.InternalTranslogFactory;
 import org.opensearch.index.translog.TestTranslog;
 import org.opensearch.index.translog.Translog;
 import org.opensearch.index.translog.TranslogStats;
+import org.opensearch.indices.DefaultRemoteStoreSettings;
 import org.opensearch.indices.IndicesService;
 import org.opensearch.indices.recovery.RecoveryState;
 import org.opensearch.indices.replication.checkpoint.SegmentReplicationCheckpointPublisher;
@@ -650,7 +651,15 @@ public class IndexShardIT extends OpenSearchSingleNodeTestCase {
                 }
             }
         };
-        final IndexShard newShard = newIndexShard(indexService, shard, wrapper, getInstanceFromNode(CircuitBreakerService.class), listener);
+        NodeEnvironment env = getInstanceFromNode(NodeEnvironment.class);
+        final IndexShard newShard = newIndexShard(
+            indexService,
+            shard,
+            wrapper,
+            getInstanceFromNode(CircuitBreakerService.class),
+            env.nodeId(),
+            listener
+        );
         shardRef.set(newShard);
         recoverShard(newShard);
 
@@ -674,6 +683,7 @@ public class IndexShardIT extends OpenSearchSingleNodeTestCase {
         final IndexShard shard,
         CheckedFunction<DirectoryReader, DirectoryReader, IOException> wrapper,
         final CircuitBreakerService cbs,
+        final String nodeId,
         final IndexingOperationListener... listeners
     ) throws IOException {
         ShardRouting initializingShardRouting = getInitializingShardRouting(shard.routingEntry());
@@ -702,7 +712,11 @@ public class IndexShardIT extends OpenSearchSingleNodeTestCase {
             SegmentReplicationCheckpointPublisher.EMPTY,
             null,
             null,
-            () -> IndexSettings.DEFAULT_REMOTE_TRANSLOG_BUFFER_INTERVAL
+            nodeId,
+            null,
+            DefaultRemoteStoreSettings.INSTANCE,
+            false,
+            IndexShardTestUtils.getFakeDiscoveryNodes(initializingShardRouting)
         );
     }
 
@@ -739,7 +753,7 @@ public class IndexShardIT extends OpenSearchSingleNodeTestCase {
             }
         }
         shard.refresh("test");
-        assertThat(client().search(countRequest).actionGet().getHits().getTotalHits().value, equalTo(numDocs));
+        assertThat(client().search(countRequest).actionGet().getHits().getTotalHits().value(), equalTo(numDocs));
         assertThat(shard.getLocalCheckpoint(), equalTo(shard.seqNoStats().getMaxSeqNo()));
 
         final CountDownLatch engineResetLatch = new CountDownLatch(1);
@@ -770,7 +784,7 @@ public class IndexShardIT extends OpenSearchSingleNodeTestCase {
         }
         assertThat(
             "numDocs=" + numDocs + " moreDocs=" + moreDocs,
-            client().search(countRequest).actionGet().getHits().getTotalHits().value,
+            client().search(countRequest).actionGet().getHits().getTotalHits().value(),
             equalTo(numDocs + moreDocs)
         );
     }
